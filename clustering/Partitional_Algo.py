@@ -22,6 +22,7 @@ Relevant literature:
 import warnings
 import numpy as np
 from joblib import Parallel, delayed
+import math as mt
 import pdb
 
 ###############################################################################
@@ -200,7 +201,6 @@ class Partitional_class():
         Keys represent the number of clusters for which the algorithm ran.
         Values are a tuple containing final clustering error and total number 
         of iterations.
-
         
         """        
 
@@ -253,9 +253,106 @@ class Partitional_class():
             cluster_distances_[n_cl] = temp_dist[:,id_min_err]
             cluster_error_[n_cl] = [temp_clust_err[0,id_min_err],temp_iter[0,id_min_err]]
 
-
+        #return
         return (labels_,cluster_distances_,cluster_error_)
+    
+    
+    def run_W_GKKM(self,X,K,weights):
+        """Routine running the Weighted Global Kernel k-Mean algorithm
+        
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape=(n_samples, n_features)
+        
+        K: matrix, shape=(n_samples, n_samples)
+            
+        weights : array, [1, n_samples], default=numpy.ones((1,n_samples))
+        Weights for the individual points of the dataset. Each partitional 
+        algorithm is implemented using the weighted case. The non-weighted 
+        scenario can be obtained by having an array of ones.
+        
+        Returns
+        ----------
+       
+        labels_: dictionary containing sample labels.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are (1,n_samples) arrays containing the labels
+            
+        cluster_distances_: dictionary containing quadratic distances of each 
+        sample to its cluster center, in feature space.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are (1,n_samples) arrays containing the centroids
+            
+        cluster_error_: dictionary containing clustering errors and iterations.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are a tuple containing final clustering error and total number 
+        of iterations.
+        
+        """     
+    
+        #Dictionary initialization        
+        labels_ = {}
+        cluster_distances_ = {}
+        cluster_error_ = {}
+        
+        #number of samples
+        n_samples = X.shape[0]         
+        #Initialize cluster labels
+        temp_labels = np.zeros((n_samples,1))            
+        temp_labels_i = np.zeros((n_samples,1))            
+        #Initialize quadratic distances of each sample to its cluster center,
+        # in feature space
+        temp_dist = np.zeros((n_samples,1))                        
+        temp_dist_i = np.zeros((n_samples,1))                        
+        
+        for n_cl in self.n_clusters:
+            #output status
+            if self.verbose>=0:
+                print("Finding optimal solution with %d clusters."%n_cl)
+
+            #if it is the 1-cluster iteration, evaluate the error
+            if n_cl==1:
+                #assign one point to the cluster 1
+                temp_labels[0,0] = 1
+                #run the W_KKM algorithm
+                temp_labels[:,0],temp_clust_err,temp_iter,temp_dist[:,0] = \
+                self._run_W_KKM(temp_labels[:,0],K,weights,n_cl)
+            else:
+                # take a for loop over the points. For each point remove it 
+                # from the set, run KKM, check whether the error is smaller and 
+                # if so take this one as the new solution                
+                Old_temp_clust_err = temp_clust_err
+                for i in range(n_samples):                    
+                    temp_labels_i[:,0] = labels_[n_cl-1].copy()
+                    temp_labels_i[i,0] = n_cl
+                    if self.verbose>1:
+                        print("Trying making a singleton cluster with point %d."%i)
+                    #run the W_KKM algorithm
+                    temp_labels_i[:,0],temp_clust_err,temp_iter,temp_dist_i[:,0] = \
+                    self._run_W_KKM(temp_labels_i[:,0],K,weights,n_cl)
+                    if temp_clust_err<Old_temp_clust_err:
+                        temp_labels[:,0] = temp_labels_i[:,0]
+                        temp_dist[:,0] = temp_dist_i[:,0]
+                        Old_temp_clust_err,Old_temp_iter = temp_clust_err,temp_iter
+                #end of run over all points
+                temp_clust_err,temp_iter = Old_temp_clust_err,Old_temp_iter
+                
+            
+            
+            if self.verbose>0:
+                print(10*'-')
+                print("Solution for %d clusters found. Clustering error: %f"%(n_cl,temp_clust_err))
+                print(10*'-')                
+            #assignment of the optimal solution
+            labels_[n_cl] = temp_labels[:,0]
+            cluster_distances_[n_cl] = temp_dist[:,0]
+            cluster_error_[n_cl] = [temp_clust_err,temp_iter]
 
 
 
 
+
+
+
+
+    

@@ -167,10 +167,16 @@ class Cluster_class():
                 n_cluster_ev = int(self.n_clusters)
                 if n_cluster_ev < 0:
                     raise ValueError  
-                n_cluster_ev = [n_cluster_ev]
+                #if the algorithm is the GKKM one, then progressively 
+                #build the solution up to n_cluster_ev
+                if self.algorithm == self.impl_algo['partitional'][2]:
+                    n_cluster_ev = list(map(int,range(1,n_cluster_ev)))
+                else:
+                    n_cluster_ev = [n_cluster_ev]
             except ValueError:    
                 print("Number of clusters must be a positive integer.")
                 raise
+        #return cluster number
         return n_cluster_ev
             
     def _check_pars(self,Pars_to_check):
