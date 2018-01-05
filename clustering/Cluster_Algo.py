@@ -22,7 +22,8 @@ import warnings
 import numpy as np
 from joblib import Parallel, delayed
 from scipy.spatial.distance import pdist, squareform
-
+#personal imports
+import partitional_algo as pa
 
 ###############################################################################
 # Main class grouping all implementations
@@ -75,6 +76,9 @@ class Cluster_class():
         Type of kernel used in feature space. Default is gaussian.
         Algorithm name "KM" forces the kernel to "lin".
         
+    sigm_gauss: float, optional, default=1.0
+        Sigma of the Gaussian kernel. 
+        
     n_clusters: int, optional
         Number of clusters that have to be identified in the dataset.
         If not provided explicitly, a routine will automatically infer it from data.
@@ -101,7 +105,8 @@ class Cluster_class():
     """
     
     def __init__(self,algorithm="GKKM-CMM",verbose=0,n_jobs=1,kernel="gauss",
-                 n_clusters=None,max_iter=100,tol=1e-6,n_init=100,random_seed=128):
+                 sigm_gauss=1,n_clusters=None,max_iter=100,tol=1e-6,n_init=100,
+                 random_seed=128):
         
         # dictionary of all implemented algorithms
         impl_algo = dict(partitional=["KM", "KKM", "GKKM", "GKKM-CMM"],
@@ -113,6 +118,7 @@ class Cluster_class():
         self.verbose = verbose
         self.n_jobs = n_jobs
         self.kernel = kernel
+        self.sigm_gauss = sigm_gauss
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.tol = tol
@@ -120,20 +126,91 @@ class Cluster_class():
         self.random_seed = random_seed
         
     
-    def _compute_kernel(X):
-        """Computes the Kernel for any partitional algorithm"""
+    def _compute_kernel(self,X,weights):
+        """Computes the Kernel for any partitional algorithm and 
+        initializes the weights"""
         
-        if self.kernel is "lin" or self.algorithm is impl_algo['partitional'][0]:
+        #kernel
+        if self.kernel == "lin" or self.algorithm == impl_algo['partitional'][0]:
             # linear kernel will be calculated
             K = np.dot(X,X.T)
-        elif self.kernel is "gauss":
+        elif self.kernel == "gauss":
             # gaussian kernel will be calculated
             pairwise_sq_dists = squareform(pdist(X, 'sqeuclidean'))
-            K = np.exp(-pairwise_sq_dists / s**2)        
+            K = np.exp(-pairwise_sq_dists / self.sigm_gauss**2)        
         else:
              raise ValueError("Invalid Kernel name.")               
+        #weights
+        if weights is None:
+            weights = np.ones((1,X.shape[0]))
+        else:
+            try:
+                if weights.shape[1] != X.shape[0]:
+                    raise ValueError    
+            except ValueError:    
+                print("Invalid array size for the weights.")
+                raise             
         # return the result 
-        return K
+        return (K,weights)
+    
+    def _estimate_clusters(self,X):
+        """Checking and/or inferring from data the number of clusters to be
+        used in a partitional clustering algorithm"""
+        
+        if self.n_clusters is None:
+            n_cluster_ev = list(map(int,range(1,11)))
+            if self.verbose>0:
+                print("Number of clusters not specified.\n\
+                      The algorithm will run with a 1-10 range, in order to use the Elbow method.")            
+        else:
+            #check that is a positive integer
+            try:
+                n_cluster_ev = int(self.n_clusters)
+                if n_cluster_ev < 0:
+                    raise ValueError  
+            except ValueError:    
+                print("Number of clusters must be a positive integer.")
+                raise
+        return n_cluster_ev
+            
+    def _scheduler_partitional(self,X,K,weights):
+        """General scheduler for the partitional algorithms
+        Runs the approprate subroutine based on the algorithm name.
+        """
+        
+        #Initialize the object
+        partitional = pa.Partitional_class(self)
+        
+        #Running the scheduler
+        if self.algorithm == self.impl_algo['partitional'][0]:
+            if self.verbose>0:
+                print("Running the standard k-Means algorithm.")
+            #Run the stand-alone KKM algorithm with a linear kernel
+            labels_,cluster_centers_,cluster_error_ = \
+            partitional.run_W_KKM_SA(X,K,weights)
+            
+        elif self.algorithm == self.impl_algo['partitional'][1]:
+            if self.verbose>0:
+                print("Running the Kernel k-Means algorithm.")
+            #Run the stand-alone KKM algorithm
+            labels_,cluster_centers_,cluster_error_ = \
+            partitional.run_W_KKM_SA(X,K,weights)
+        
+        elif self.algorithm == self.impl_algo['partitional'][2]:
+            if self.verbose>0:
+                print("Running the Global Kernel k-Means algorithm.")
+            #Run the GKKM algorithm
+            labels_,cluster_centers_,cluster_error_ = \
+            partitional.run_W_GKKM(X,K,weights)
+        
+        else:
+            if self.verbose>0:
+                print("Running the Global Kernel k-Means algorithm with Convex Mixture Models.")
+            #Run the GKKM-CMM algorithm
+            labels_,cluster_centers_,cluster_error_ = \
+            partitional.run_W_GKKM_CMM(X,K,weights)
+            
+        return (labels_,cluster_centers_,cluster_error_)
         
     def fit(self,X,weights=None):
         """Compute partitional or propagation-separation clustering.
@@ -150,8 +227,14 @@ class Cluster_class():
         
         #we have 3 cases
         if self.algorithm in self.impl_algo['partitional']:            
-            #Compute the Kernel based on the dataset
-            K = _compute_kernel(X)            
+            #Compute the Kernel and initialize weights based on the dataset
+            K, weights = self._compute_kernel(X,weights)             
+            #Estimate the number of clusters, if not given
+            self.n_clusters = self._estimate_clusters(X)
+            
+            #Start scheduler for the partitional algorithms
+            self.labels_,self.cluster_centers_,self.cluster_error_ = \
+                self._scheduler_partitional(X,K,weights)
             
         elif self.algorithm in self.impl_algo['prop_sep']:
         
@@ -159,7 +242,7 @@ class Cluster_class():
             # raise error, not a valid algorithm name
             raise ValueError("Invalid algorithm name.")
         
-        
+        return self        
         
         
         
