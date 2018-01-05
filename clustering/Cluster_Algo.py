@@ -20,10 +20,9 @@ Relevant literature:
 # imports
 import warnings
 import numpy as np
-from joblib import Parallel, delayed
 from scipy.spatial.distance import pdist, squareform
 #personal imports
-import partitional_algo as pa
+import Partitional_Algo as pa
 
 ###############################################################################
 # Main class grouping all implementations
@@ -38,7 +37,7 @@ class Cluster_class():
     Implmented algorithms within this family:
         
         - Standard K-Means (KM): 
-            Subcase of kKM with a linear kernel.
+            Subcase of KKM with a linear kernel.
         
         - Kernel k-Means (KKM): 
             Clusters in feature space.          
@@ -58,7 +57,7 @@ class Cluster_class():
         If not specified, GKKM-CMM will run.
     
     verbose: int, default=0
-        Verbosity mode.
+        Verbosity mode. There are 3 levels of verbosity: 0,1,2.
         
     n_jobs: int
         Making use of parallel computation where possible.
@@ -86,7 +85,7 @@ class Cluster_class():
     max_iter: int, optional, default=100
         Maximum number of iterations of the fundamental KKM routine.
     
-    tol: float, optional, default=1e-6
+    tol: float, optional, default=1e-5
         Relative tolerance with respect to the initial clustering error after 
         which the KKM routine declares convergence.
         
@@ -98,18 +97,18 @@ class Cluster_class():
         Number of times the algorithms KM or KKM run with different centroid
         seeds. The KM and KKM algorithms are the only ones not deterministic.
     
-    random_seed: int, optional, default=128
+    random_seed: int, optional, default=None
         Seed for the random initialization of the KM and KMM routines, when 
         running in a non-deterministic way.
     
     """
     
     def __init__(self,algorithm="GKKM-CMM",verbose=0,n_jobs=1,kernel="gauss",
-                 sigm_gauss=1,n_clusters=None,max_iter=100,tol=1e-6,n_init=100,
-                 random_seed=128):
+                 sigm_gauss=1,n_clusters=None,max_iter=100,tol=1e-5,n_init=100,
+                 random_seed=None):
         
         # dictionary of all implemented algorithms
-        impl_algo = dict(partitional=["KM", "KKM", "GKKM", "GKKM-CMM"],
+        Impl_algo = dict(partitional=["KM", "KKM", "GKKM", "GKKM-CMM"],
                          prop_sep=["AWC"])
         
         # assignment to the class properties
@@ -131,13 +130,13 @@ class Cluster_class():
         initializes the weights"""
         
         #kernel
-        if self.kernel == "lin" or self.algorithm == impl_algo['partitional'][0]:
+        if self.kernel == "lin" or self.algorithm == self.impl_algo['partitional'][0]:
             # linear kernel will be calculated
             K = np.dot(X,X.T)
         elif self.kernel == "gauss":
             # gaussian kernel will be calculated
             pairwise_sq_dists = squareform(pdist(X, 'sqeuclidean'))
-            K = np.exp(-pairwise_sq_dists / self.sigm_gauss**2)        
+            K = np.exp(-pairwise_sq_dists /(2*self.sigm_gauss**2))        
         else:
              raise ValueError("Invalid Kernel name.")               
         #weights
@@ -168,11 +167,24 @@ class Cluster_class():
                 n_cluster_ev = int(self.n_clusters)
                 if n_cluster_ev < 0:
                     raise ValueError  
+                n_cluster_ev = [n_cluster_ev]
             except ValueError:    
                 print("Number of clusters must be a positive integer.")
                 raise
         return n_cluster_ev
             
+    def _check_pars(self,Pars_to_check):
+        """Checks whether parameters are correctly defined"""
+        
+        for i in Pars_to_check.keys():            
+            try:
+                local_pars = Pars_to_check[i][1](Pars_to_check[i][0])
+                if local_pars < 0:
+                    raise ValueError  
+            except ValueError:    
+                print("Parameter %s must a positive of %s."%(i,Pars_to_check[i][1]))
+                raise        
+    
     def _scheduler_partitional(self,X,K,weights):
         """General scheduler for the partitional algorithms
         Runs the approprate subroutine based on the algorithm name.
@@ -181,36 +193,42 @@ class Cluster_class():
         #Initialize the object
         partitional = pa.Partitional_class(self)
         
+        #Check parameters
+        Pars_to_check = dict(verbose = [self.verbose,int], sigm_gauss = [self.sigm_gauss,float],
+                     n_init=[self.n_init,int], max_iter=[self.max_iter,int],
+                     random_seed=[self.random_seed,int],tol=[self.tol,float])
+        self._check_pars(Pars_to_check)
+        
         #Running the scheduler
         if self.algorithm == self.impl_algo['partitional'][0]:
             if self.verbose>0:
                 print("Running the standard k-Means algorithm.")
             #Run the stand-alone KKM algorithm with a linear kernel
-            labels_,cluster_centers_,cluster_error_ = \
+            labels_,cluster_distances_,cluster_error_ = \
             partitional.run_W_KKM_SA(X,K,weights)
             
         elif self.algorithm == self.impl_algo['partitional'][1]:
             if self.verbose>0:
                 print("Running the Kernel k-Means algorithm.")
             #Run the stand-alone KKM algorithm
-            labels_,cluster_centers_,cluster_error_ = \
+            labels_,cluster_distances_,cluster_error_ = \
             partitional.run_W_KKM_SA(X,K,weights)
         
         elif self.algorithm == self.impl_algo['partitional'][2]:
             if self.verbose>0:
                 print("Running the Global Kernel k-Means algorithm.")
             #Run the GKKM algorithm
-            labels_,cluster_centers_,cluster_error_ = \
-            partitional.run_W_GKKM(X,K,weights)
+            #labels_,cluster_distances_,cluster_error_ = \
+            #partitional.run_W_GKKM(X,K,weights)
         
         else:
             if self.verbose>0:
                 print("Running the Global Kernel k-Means algorithm with Convex Mixture Models.")
             #Run the GKKM-CMM algorithm
-            labels_,cluster_centers_,cluster_error_ = \
-            partitional.run_W_GKKM_CMM(X,K,weights)
+            #labels_,cluster_distances_,cluster_error_ = \
+            #partitional.run_W_GKKM_CMM(X,K,weights)
             
-        return (labels_,cluster_centers_,cluster_error_)
+        return (labels_,cluster_distances_,cluster_error_)
         
     def fit(self,X,weights=None):
         """Compute partitional or propagation-separation clustering.
@@ -223,6 +241,26 @@ class Cluster_class():
         Weights for the individual points of the dataset. Each partitional 
         algorithm is implemented using the weighted case. The non-weighted 
         scenario can be obtained by having an array of ones.
+        
+        Computes the following
+        ----------
+
+        self.labels_: dictionary containing sample labels.
+        Keys represent the number of clusters for which the algorithm ran or the
+        number of clusters found by the algorithm.
+        Values are (1,n_samples) arrays containing the labels
+            
+        self.cluster_distances_:  dictionary containing quadratic distances of each 
+        sample to its cluster center, in feature space.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are (1,n_samples) arrays containing the centroids        
+            
+        self.cluster_error_: dictionary containing clustering errors and iterations.
+        Keys represent the number of clusters for which the algorithm ran or the
+        number of clusters found by the algorithm.
+        Values are a tuple containing final clustering error and total number 
+        of iterations.
+            
         """        
         
         #we have 3 cases
@@ -233,11 +271,11 @@ class Cluster_class():
             self.n_clusters = self._estimate_clusters(X)
             
             #Start scheduler for the partitional algorithms
-            self.labels_,self.cluster_centers_,self.cluster_error_ = \
+            self.labels_,self.cluster_distances_,self.cluster_error_ = \
                 self._scheduler_partitional(X,K,weights)
             
         elif self.algorithm in self.impl_algo['prop_sep']:
-        
+            pass
         else:
             # raise error, not a valid algorithm name
             raise ValueError("Invalid algorithm name.")
