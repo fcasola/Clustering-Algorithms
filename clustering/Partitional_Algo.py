@@ -229,9 +229,10 @@ class Partitional_class():
             #loop over different centroid locations
             for i_ctr in range(self.n_init):
                 #selecting random points in the cluster to initialize centroids
-                centr_id = np.random.randint(0,n_samples,n_cl)
+                sorted_ind = np.arange(n_samples)
+                shuffled_ind = np.random.permutation(sorted_ind)                
                 #singleton initialization of the cluster labels
-                temp_labels[centr_id,i_ctr] = np.arange(1,n_cl+1)
+                temp_labels[shuffled_ind[0:n_cl],i_ctr] = sorted_ind[0:n_cl]+1
                 #run the W_KKM algorithm
                 temp_labels[:,i_ctr],temp_clust_err[0,i_ctr],temp_iter[0,i_ctr],temp_dist[:,i_ctr] = \
                 self._run_W_KKM(temp_labels[:,i_ctr],K,weights,n_cl)

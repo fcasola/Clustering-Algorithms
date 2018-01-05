@@ -193,10 +193,15 @@ class Cluster_class():
         #Initialize the object
         partitional = pa.Partitional_class(self)
         
-        #Check parameters
+        #Check that parameters have proper values
+        if self.random_seed is None:
+            check_seed = 0
+        else:
+            check_seed = self.random_seed
+            
         Pars_to_check = dict(verbose = [self.verbose,int], sigm_gauss = [self.sigm_gauss,float],
                      n_init=[self.n_init,int], max_iter=[self.max_iter,int],
-                     random_seed=[self.random_seed,int],tol=[self.tol,float])
+                     random_seed=[check_seed,int],tol=[self.tol,float])
         self._check_pars(Pars_to_check)
         
         #Running the scheduler
