@@ -183,7 +183,8 @@ class Cluster_class():
                     raise ValueError  
                 #if the algorithm is the GKKM one, then progressively 
                 #build the solution up to n_cluster_ev
-                if self.algorithm == self.impl_algo['partitional'][2]:
+                if self.algorithm == self.impl_algo['partitional'][2] or \
+                self.algorithm == self.impl_algo['partitional'][3]:
                     n_cluster_ev = list(map(int,range(1,n_cluster_ev+1)))
                 else:
                     n_cluster_ev = [n_cluster_ev]

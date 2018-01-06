@@ -453,7 +453,7 @@ class Partitional_class():
             #search the indeces for the top qj
             top_qj = np.argsort(q_j,axis=0)[::-1][:n_exemplars]
             #insert them in the convergence matrix
-            converg_matr[:,(loc_num_iter-1)%(self.n_iter_CMM)] = top_qj.copy()
+            converg_matr[:,(loc_num_iter-1)%(self.n_iter_CMM)] = top_qj.copy().reshape(-1,)
         
             #once first loop is over, check that indeces of the good qj
             #did not change
@@ -496,7 +496,7 @@ class Partitional_class():
             print(10*'-')        
             
         #saving the exemplars, taking the first column (arbitrary)
-        exemplars = list(converg_matr[:,0])
+        exemplars = list(map(int,converg_matr[:,0])) 
         
         #calling the GKKM routine
         labels_,cluster_distances_,cluster_error_ = \
