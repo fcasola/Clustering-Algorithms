@@ -23,6 +23,7 @@ import warnings
 import numpy as np
 from joblib import Parallel, delayed
 import math as mt
+import progressbar 
 import pdb
 
 ###############################################################################
@@ -161,7 +162,7 @@ class Partitional_class():
                     break
             
             #update samples label
-            label_samples = Update_labels
+            label_samples = Update_labels.copy()
             #increase iteration counter
             loc_num_iter += 1
             
@@ -305,6 +306,11 @@ class Partitional_class():
         temp_dist = np.zeros((n_samples,1))                        
         temp_dist_i = np.zeros((n_samples,1))                        
         
+        if self.verbose>=0:
+            print(10*'-')
+            print("Looking for a solution with %d clusters."%self.n_clusters[-1])
+            print(10*'-')
+        
         for n_cl in self.n_clusters:
             #output status
             if self.verbose>=0:
@@ -318,11 +324,15 @@ class Partitional_class():
                 temp_labels[:,0],temp_clust_err,temp_iter,temp_dist[:,0] = \
                 self._run_W_KKM(temp_labels[:,0],K,weights,n_cl)
             else:
+                #Progressbar to have an idea of advancement
+                progress = progressbar.ProgressBar()
                 # take a for loop over the points. For each point remove it 
                 # from the set, run KKM, check whether the error is smaller and 
                 # if so take this one as the new solution                
                 Old_temp_clust_err = temp_clust_err
-                for i in range(n_samples):                    
+                #start progress bar
+                iterloop = range(n_samples)
+                for i in progress(iterloop):                    
                     temp_labels_i[:,0] = labels_[n_cl-1].copy()
                     temp_labels_i[i,0] = n_cl
                     if self.verbose>1:
@@ -331,23 +341,23 @@ class Partitional_class():
                     temp_labels_i[:,0],temp_clust_err,temp_iter,temp_dist_i[:,0] = \
                     self._run_W_KKM(temp_labels_i[:,0],K,weights,n_cl)
                     if temp_clust_err<Old_temp_clust_err:
-                        temp_labels[:,0] = temp_labels_i[:,0]
-                        temp_dist[:,0] = temp_dist_i[:,0]
+                        temp_labels[:,0] = temp_labels_i[:,0].copy()
+                        temp_dist[:,0] = temp_dist_i[:,0].copy()
                         Old_temp_clust_err,Old_temp_iter = temp_clust_err,temp_iter
                 #end of run over all points
-                temp_clust_err,temp_iter = Old_temp_clust_err,Old_temp_iter
-                
-            
+                temp_clust_err,temp_iter = Old_temp_clust_err,Old_temp_iter                           
             
             if self.verbose>0:
                 print(10*'-')
                 print("Solution for %d clusters found. Clustering error: %f"%(n_cl,temp_clust_err))
                 print(10*'-')                
             #assignment of the optimal solution
-            labels_[n_cl] = temp_labels[:,0]
-            cluster_distances_[n_cl] = temp_dist[:,0]
+            labels_[n_cl] = temp_labels[:,0].copy()
+            cluster_distances_[n_cl] = temp_dist[:,0].copy()
             cluster_error_[n_cl] = [temp_clust_err,temp_iter]
 
+        #return
+        return (labels_,cluster_distances_,cluster_error_)
 
 
 

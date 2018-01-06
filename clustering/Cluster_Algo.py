@@ -170,7 +170,7 @@ class Cluster_class():
                 #if the algorithm is the GKKM one, then progressively 
                 #build the solution up to n_cluster_ev
                 if self.algorithm == self.impl_algo['partitional'][2]:
-                    n_cluster_ev = list(map(int,range(1,n_cluster_ev)))
+                    n_cluster_ev = list(map(int,range(1,n_cluster_ev+1)))
                 else:
                     n_cluster_ev = [n_cluster_ev]
             except ValueError:    
@@ -229,8 +229,8 @@ class Cluster_class():
             if self.verbose>0:
                 print("Running the Global Kernel k-Means algorithm.")
             #Run the GKKM algorithm
-            #labels_,cluster_distances_,cluster_error_ = \
-            #partitional.run_W_GKKM(X,K,weights)
+            labels_,cluster_distances_,cluster_error_ = \
+            partitional.run_W_GKKM(X,K,weights)
         
         else:
             if self.verbose>0:
