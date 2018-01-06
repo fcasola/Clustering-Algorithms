@@ -61,7 +61,10 @@ class Partitional_class():
         self.n_clusters = Init_pars.n_clusters
         self.max_iter = Init_pars.max_iter
         self.tol = Init_pars.tol
-        self.n_init = Init_pars.n_init
+        self.n_init = Init_pars.n_init        
+        self.n_iter_CMM = Init_pars.n_iter_CMM
+        self.r_exemplars = Init_pars.r_exemplars
+        self.beta_scale = Init_pars.beta_scale                
         self.random_seed = Init_pars.random_seed        
 
 
@@ -171,13 +174,12 @@ class Partitional_class():
         
                 
 
-    def run_W_KKM_SA(self,X,K,weights):
+    def run_W_KKM_SA(self,K,weights):
         """Routine running the Weighted Kernel k-Mean algorithm
         in a stand-alone fashion
         
         Parameters
         ----------
-        X : array-like or sparse matrix, shape=(n_samples, n_features)
         
         K: matrix, shape=(n_samples, n_samples)
             
@@ -211,7 +213,7 @@ class Partitional_class():
         cluster_error_ = {}
         
         #number of samples
-        n_samples = X.shape[0]         
+        n_samples = K.shape[0]         
         
         for n_cl in self.n_clusters:
             #output status
@@ -258,19 +260,23 @@ class Partitional_class():
         return (labels_,cluster_distances_,cluster_error_)
     
     
-    def run_W_GKKM(self,X,K,weights):
+    def run_W_GKKM(self,K,weights,exemplars="all"):
         """Routine running the Weighted Global Kernel k-Mean algorithm
         
         Parameters
         ----------
-        X : array-like or sparse matrix, shape=(n_samples, n_features)
         
         K: matrix, shape=(n_samples, n_samples)
             
-        weights : array, [1, n_samples], default=numpy.ones((1,n_samples))
+        weights: array, [1, n_samples], default=numpy.ones((1,n_samples))
         Weights for the individual points of the dataset. Each partitional 
         algorithm is implemented using the weighted case. The non-weighted 
         scenario can be obtained by having an array of ones.
+        
+        exemplars: default="all"
+        Specifies the indices of the input samples used as initial guesses for
+        local search. This set is smaller than the whole dataset whenever GKKM
+        runs as a subroutine of GKKM with Convex Mixture Models.        
         
         Returns
         ----------
@@ -297,7 +303,7 @@ class Partitional_class():
         cluster_error_ = {}
         
         #number of samples
-        n_samples = X.shape[0]         
+        n_samples = K.shape[0]         
         #Initialize cluster labels
         temp_labels = np.zeros((n_samples,1))            
         temp_labels_i = np.zeros((n_samples,1))            
@@ -305,6 +311,12 @@ class Partitional_class():
         # in feature space
         temp_dist = np.zeros((n_samples,1))                        
         temp_dist_i = np.zeros((n_samples,1))                        
+        
+        #iterator 
+        if exemplars=="all":
+            iterloop = range(n_samples)
+        else:
+            iterloop = exemplars
         
         if self.verbose>=0:
             print(10*'-')
@@ -331,7 +343,6 @@ class Partitional_class():
                 # if so take this one as the new solution                
                 Old_temp_clust_err = temp_clust_err
                 #start progress bar
-                iterloop = range(n_samples)
                 for i in progress(iterloop):                    
                     temp_labels_i[:,0] = labels_[n_cl-1].copy()
                     temp_labels_i[i,0] = n_cl
@@ -360,9 +371,140 @@ class Partitional_class():
         return (labels_,cluster_distances_,cluster_error_)
 
 
+    def run_W_GKKM_CMM(self,K,weights):
+        """Routine first running the convex mixture model, namely computing the
+        exemplars. The group of exemplars is then fed into the
+        Weighted Global Kernel k-Mean algorithm
+        
+        Parameters
+        ----------
+        
+        K: matrix, shape=(n_samples, n_samples)
+            
+        weights: array, [1, n_samples], default=numpy.ones((1,n_samples))
+        Weights for the individual points of the dataset. Each partitional 
+        algorithm is implemented using the weighted case. The non-weighted 
+        scenario can be obtained by having an array of ones.
+        
+        Returns
+        ----------
+       
+        labels_: dictionary containing sample labels.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are (1,n_samples) arrays containing the labels
+            
+        cluster_distances_: dictionary containing quadratic distances of each 
+        sample to its cluster center, in feature space.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are (1,n_samples) arrays containing the centroids
+            
+        cluster_error_: dictionary containing clustering errors and iterations.
+        Keys represent the number of clusters for which the algorithm ran.
+        Values are a tuple containing final clustering error and total number 
+        of iterations.
+        
+        """ 
+        
+        #number of samples
+        n_samples = K.shape[0]  
+        
+        #Distribution P(xi) according to Tzortzis et al.
+        P_xi = weights/np.sum(weights)
 
+        #Euclidean distances in feature space
+        S_ij = -2*K + np.tile(np.diagonal(K).reshape(-1,1),(1,n_samples)) + \
+                np.tile(np.diagonal(K).reshape(1,-1),(n_samples,1))
 
-
-
-
+        #Parameter beta according to Tzortzis et al.
+        beta = -n_samples*np.sum(P_xi*np.log(P_xi))/np.sum(np.dot(P_xi,S_ij))
+        beta *= self.beta_scale
     
+        #Computing full matrix S with the exponential term
+        S_ij = np.exp(-beta*S_ij)
+    
+        #Initialize probabilities qj for the CMM
+        q_j = np.ones((n_samples,1))/n_samples
+        
+        #Threshold-q_j: put to zero the qj below this value
+        qthres = 1/(n_samples*1000)
+    
+        #zeroing the local number of iterations
+        loc_num_iter = 1       
+        
+        #Setting the number of exemplars, for the CMM algorithm
+        n_exemplars = self.r_exemplars*self.n_clusters[-1]        
+        
+        #defining a convergence matrix
+        converg_matr = np.zeros((n_exemplars,self.n_iter_CMM))
+        
+        if self.verbose>0:
+            print(10*'-')
+            print("Searching for %d exemplars."%(n_exemplars))
+            print(10*'-')          
+    
+        #loop in search of the exemplars
+        while True:
+            
+            if self.verbose>1:
+                print(10*'-')
+                print("Iteration number %d, "%(loc_num_iter))
+                print(10*'-')             
+            
+            #search the indeces for the top qj
+            top_qj = np.argsort(q_j,axis=0)[::-1][:n_exemplars]
+            #insert them in the convergence matrix
+            converg_matr[:,(loc_num_iter-1)%(self.n_iter_CMM)] = top_qj.copy()
+        
+            #once first loop is over, check that indeces of the good qj
+            #did not change
+            #dummy variable to stop iteration if condition is matched
+            stop_iter = 1
+            #check convergence
+            if loc_num_iter>self.n_iter_CMM:
+                #check over all the n_exemplars
+                for ne in range(n_exemplars):
+                    _, counts_elements = np.unique(converg_matr[ne,:], return_counts=True)
+                    #check if only 1 element is present all over
+                    if len(counts_elements)==1 and counts_elements[0]==self.n_iter_CMM:
+                        pass
+                    else:
+                        stop_iter = 0
+                #if indeces are stable, break the loop
+                if stop_iter==1:
+                    break
+                
+            #computing the nj term in order to update the qj
+            z_i = np.dot(S_ij,q_j)
+            z_i = (1/z_i).reshape(1,-1)
+            #this is now a (n_samples,1) n_j array
+            n_j = np.dot(P_xi*z_i,S_ij).reshape(-1,1)
+        
+            #calculate the new prior for qi
+            q_j *= n_j
+            
+            #get rid of values that are too small
+            q_j[q_j<qthres] = 0
+            q_j /= np.sum(q_j)
+        
+            #update iteration value
+            loc_num_iter += 1
+            
+        # we found the exemplars. Now running GKKM   
+        if self.verbose>0:
+            print(10*'-')
+            print("Exemplars found, now running GKKM.")
+            print(10*'-')        
+            
+        #saving the exemplars, taking the first column (arbitrary)
+        exemplars = list(converg_matr[:,0])
+        
+        #calling the GKKM routine
+        labels_,cluster_distances_,cluster_error_ = \
+            self.run_W_GKKM(K,weights,exemplars)    
+            
+        #return
+        return (labels_,cluster_distances_,cluster_error_)            
+            
+            
+            
+            

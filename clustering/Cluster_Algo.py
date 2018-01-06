@@ -97,6 +97,17 @@ class Cluster_class():
         Number of times the algorithms KM or KKM run with different centroid
         seeds. The KM and KKM algorithms are the only ones not deterministic.
     
+    n_iter_CMM: int, optional, default=500
+        Number of iteration during which the location of the exemplars for the
+        CMM algorithm does not change.
+    
+    r_exemplars: int, optional, default=2
+        Ratio between the number of exemplars and the total number of clusters.
+        Used by the CMM algorithm.
+        
+    beta_scale: float, optional, default=1
+        Constant scaling the parameter beta in the CMM Likelihood
+    
     random_seed: int, optional, default=None
         Seed for the random initialization of the KM and KMM routines, when 
         running in a non-deterministic way.
@@ -105,7 +116,7 @@ class Cluster_class():
     
     def __init__(self,algorithm="GKKM-CMM",verbose=0,n_jobs=1,kernel="gauss",
                  sigm_gauss=1,n_clusters=None,max_iter=100,tol=1e-5,n_init=100,
-                 random_seed=None):
+                 n_iter_CMM=500,r_exemplars=2,beta_scale=1,random_seed=None):
         
         # dictionary of all implemented algorithms
         Impl_algo = dict(partitional=["KM", "KKM", "GKKM", "GKKM-CMM"],
@@ -121,7 +132,10 @@ class Cluster_class():
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.tol = tol
-        self.n_init = n_init
+        self.n_init = n_init        
+        self.n_iter_CMM = n_iter_CMM
+        self.r_exemplars = r_exemplars
+        self.beta_scale = beta_scale        
         self.random_seed = random_seed
         
     
@@ -191,7 +205,7 @@ class Cluster_class():
                 print("Parameter %s must a positive of %s."%(i,Pars_to_check[i][1]))
                 raise        
     
-    def _scheduler_partitional(self,X,K,weights):
+    def _scheduler_partitional(self,K,weights):
         """General scheduler for the partitional algorithms
         Runs the approprate subroutine based on the algorithm name.
         """
@@ -207,7 +221,8 @@ class Cluster_class():
             
         Pars_to_check = dict(verbose = [self.verbose,int], sigm_gauss = [self.sigm_gauss,float],
                      n_init=[self.n_init,int], max_iter=[self.max_iter,int],
-                     random_seed=[check_seed,int],tol=[self.tol,float])
+                     n_iter_CMM=[self.n_iter_CMM,int],r_exemplars=[self.r_exemplars,int],
+                     beta_scale=[self.beta_scale,float],random_seed=[check_seed,int],tol=[self.tol,float])
         self._check_pars(Pars_to_check)
         
         #Running the scheduler
@@ -216,28 +231,28 @@ class Cluster_class():
                 print("Running the standard k-Means algorithm.")
             #Run the stand-alone KKM algorithm with a linear kernel
             labels_,cluster_distances_,cluster_error_ = \
-            partitional.run_W_KKM_SA(X,K,weights)
+            partitional.run_W_KKM_SA(K,weights)
             
         elif self.algorithm == self.impl_algo['partitional'][1]:
             if self.verbose>0:
                 print("Running the Kernel k-Means algorithm.")
             #Run the stand-alone KKM algorithm
             labels_,cluster_distances_,cluster_error_ = \
-            partitional.run_W_KKM_SA(X,K,weights)
+            partitional.run_W_KKM_SA(K,weights)
         
         elif self.algorithm == self.impl_algo['partitional'][2]:
             if self.verbose>0:
                 print("Running the Global Kernel k-Means algorithm.")
             #Run the GKKM algorithm
             labels_,cluster_distances_,cluster_error_ = \
-            partitional.run_W_GKKM(X,K,weights)
+            partitional.run_W_GKKM(K,weights)
         
         else:
             if self.verbose>0:
                 print("Running the Global Kernel k-Means algorithm with Convex Mixture Models.")
             #Run the GKKM-CMM algorithm
-            #labels_,cluster_distances_,cluster_error_ = \
-            #partitional.run_W_GKKM_CMM(X,K,weights)
+            labels_,cluster_distances_,cluster_error_ = \
+            partitional.run_W_GKKM_CMM(K,weights)
             
         return (labels_,cluster_distances_,cluster_error_)
         
@@ -280,10 +295,9 @@ class Cluster_class():
             K, weights = self._compute_kernel(X,weights)             
             #Estimate the number of clusters, if not given
             self.n_clusters = self._estimate_clusters(X)
-            
             #Start scheduler for the partitional algorithms
             self.labels_,self.cluster_distances_,self.cluster_error_ = \
-                self._scheduler_partitional(X,K,weights)
+                self._scheduler_partitional(K,weights)
             
         elif self.algorithm in self.impl_algo['prop_sep']:
             pass
