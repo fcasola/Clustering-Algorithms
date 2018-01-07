@@ -23,7 +23,7 @@ from scipy.spatial.distance import pdist, squareform
 #personal imports
 import Partitional_Algo as pa
 import Prop_sep_Algo as ps
-
+import pdb
 ###############################################################################
 # Main class grouping all implementations
 

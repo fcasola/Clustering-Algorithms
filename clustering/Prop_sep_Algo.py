@@ -19,9 +19,12 @@ Relevant literature:
 import warnings
 import numpy as np
 from joblib import Parallel, delayed
-import math as mt
-from scipy.special import betainc, beta
-import progressbar 
+from scipy.special import betainc
+import sys
+import pdb
+
+#constants
+EPS = sys.float_info.epsilon
 
 ###############################################################################
 # Main class defining Propagation-separation implementations
@@ -41,7 +44,7 @@ class Prop_sep_class():
     def __init__(self,Init_pars):
         # assignment to the class properties
         #general
-        self.impl_algo = Init_pars.Impl_algo
+        self.impl_algo = Init_pars.impl_algo
         self.algorithm = Init_pars.algorithm
         self.verbose = Init_pars.verbose
         self.n_jobs = Init_pars.n_jobs
@@ -104,7 +107,8 @@ class Prop_sep_class():
             Mij = np.maximum(h0_xi,h0_xj)
             
             #initializing the connectivity matrix via an element-wise comparison
-            w0ij = (D<=Mij).astype(float)
+            #w0ij = (D<=Mij).astype(float)
+            w0ij = (D<=np.min(h0xi)).astype(float)
             
             #finding the initial radius used in the analysis
             h0 = np.min(h0xi)
@@ -137,30 +141,16 @@ class Prop_sep_class():
         
         """
         
-        #number of samples
-        n_samples = D.shape[0]
-        
         #initializing the final list of radii
         h_list = [h0]
 
         #verbosity
         if self.verbose>=1:
             print("Initial radius is %f."%h0)
-
-        #list of all possible pairwise distances
-        D_flat_uniq = np.unique(D)
-        D_dim = D_flat_uniq.shape[0]
-        
-        #define a matrix telling us, for each xi, how many points can be found
-        #within each of the possible distances
-        matrix_pts = np.zeros((n_samples,D_dim))
-        
-        for d in range(D_dim):
-            matrix_pts[:,d] = np.sum((D<=D_flat_uniq[d]),axis=1).reshape(-1,)
-        
+                
         #maximum possible radius
-        h_max = np.max(D_flat_uniq)        
-        
+        h_max = np.max(D)
+                
         #while we haven't reached the maximum possible radius
         while h_list[-1] < h_max:
         
@@ -176,14 +166,25 @@ class Prop_sep_class():
             #maximized. It's the expression B.2 of the paper by Efimov et al.
             xi_max_n = np.argmax(n_xi_hk/n_xi_hkm1)
             
-            #find the candidate radius hk, corresponding to the previous increase.
-            #if a distance where matrix_pts[xi_max_n,:]== np.max(n_xi_hk) does
-            #not exist (e.g. 2 or more points equidistant from xi), the condition B.1
-            #is weakened and we take the hk having at least n_xi_hk[xi_max_n] elements            
-            id_hk_candidate = np.where(matrix_pts[xi_max_n,:]>=n_xi_hk[xi_max_n])[0][0]
+            #list of all possible pairwise distances from xi and relative
+            #cumulated number of points
+            D_flat_uniq,Cnts_points = np.unique(D[xi_max_n,:],return_counts=True)
+    
+            #vector containing the number of points within the distances
+            #specified in D_flat_uniq (point xi excluded)
+            matrix_pts = Cnts_points.cumsum()-1                   
+            
+            #find the candidate radius hk, corresponding to the case in which 
+            # matrix_pts== n_xi_hk[xi_max_n]. If such hk does not exist (e.g. 
+            #2 or more points equidistant from xi), the condition B.1
+            #is weakened and we take the hk having at least n_xi_hk[xi_max_n] elements   
+            if matrix_pts[-1]>=n_xi_hk[xi_max_n]:
+                id_hk_candidate = np.where(matrix_pts >= n_xi_hk[xi_max_n])[0][0]
+            else:
+                id_hk_candidate = len(matrix_pts)-1    
             
             #defining the new candidate hk. b*h_{k-1} is a hard limit
-            hk_candidate = np.min(D_flat_uniq[id_hk_candidate],self.b_hk*h_list[-1])
+            hk_candidate = min(D_flat_uniq[id_hk_candidate],self.b_hk*h_list[-1])
         
             #produce a warning
             if hk_candidate<=h_list[-1]:
@@ -196,6 +197,13 @@ class Prop_sep_class():
             #adding the new candidate hk to the list
             h_list.append(hk_candidate)
             
+        #save biggest radius in case it's not there
+        if h_list[-1] < h_max:
+            h_list.append(h_max)
+            #verbosity
+            if self.verbose>=1:
+                print("New radius found is %f. Max is %f."%(h_list[-1],h_max))
+            
         #return
         return h_list
     
@@ -205,7 +213,7 @@ class Prop_sep_class():
         numerator of eq. 2.1 of the Efimov paper"""
         
         #put zeros on the diagonal to avoid the l=i,j terms
-        np.full_diagonal(wij_km1,0)
+        np.fill_diagonal(wij_km1,0)
         
         #take all pairwise scalar products, as in section 2.1
         N_i_intersect_j = np.dot(wij_km1,wij_km1.T)
@@ -268,11 +276,15 @@ class Prop_sep_class():
         """Function evaluating the Kullback-Leibler (KL) divergence
         """
         
-        #defining the argument of the log
-        argument_log = np.divide(theta_ij*(1-q_ij),(1-theta_ij)*q_ij)
+        #correct for pathological cases
+        q_ij = np.maximum(np.minimum(q_ij, 1- EPS),EPS)
+        theta_ij = np.maximum(np.minimum(theta_ij, 1- EPS),EPS)
         
         #evaluating the divergence
-        KL_ij = (theta_ij-q_ij)*np.log(argument_log)
+        KL_ij = theta_ij*np.log(theta_ij/q_ij) + (1 - theta_ij)*np.log((1-theta_ij)/(1-q_ij))
+        
+        #removing possible nans
+        KL_ij[np.isnan(KL_ij)] = 0
         
         #return
         return KL_ij
@@ -294,12 +306,15 @@ class Prop_sep_class():
         """Routine that gets the final connectivity matrix and returns the 
         cluster labels.        
         """
+
+        #Dictionary initialization        
+        labels_ = {}        
         
         #number of samples
         n_samples = wij_final.shape[0]
         
         #defining final label array
-        labels_ = np.zeros((1,n_samples))
+        labels_v = np.zeros((1,n_samples))
         
         #list of indeces
         list_id = np.arange(n_samples)
@@ -316,17 +331,18 @@ class Prop_sep_class():
             #grouping all wij>0 points in the same group
             xj_same_cluster = np.where(wij_final[current_point,:]==1)[0]
             
-            #append the xi point
-            xj_same_cluster = np.append(xj_same_cluster,current_point)
-            
             #assignment
-            labels_[xj_same_cluster] = cluster_id
+            labels_v[0,xj_same_cluster] = cluster_id
             
             #remove such points from the list_id array
-            list_id = np.delete(list_id,xj_same_cluster)
+            id_remove = np.where(np.in1d(list_id,xj_same_cluster))[0]
+            list_id = np.delete(list_id,id_remove)
             
             #advance cluster id
-            cluster_id += 1
+            cluster_id += 1            
+            
+        #save it into a dictionary
+        labels_[cluster_id-1] = labels_v
             
         #return the list of labels. Distances from cluster centers and
         #cluster errors not defined in this algorithm
@@ -363,11 +379,11 @@ class Prop_sep_class():
         of iterations.
         
         """           
-        
+
         #Initializing the weights matrix wij (page 9 of arXiv:1709.09102v1)
         if self.verbose>=0:
             print("Initializing the connectivity matrix.")
-        wij_mat,h0 = self._initialize_weights(D)
+        wij_mat,h0 = self._initialize_weights(D,n_features)
         
         #Initializing the sequence of radii hk used in AWC
         if self.verbose>=0:
@@ -378,11 +394,12 @@ class Prop_sep_class():
         if self.verbose>=0:
             print("Starting the loop over the sequence of radii.")
             
+            
         for id_h,hk_l in enumerate(hk_list):
 
             #notify
             if self.verbose>=1:
-                print("Loop over the radius %d out of %d."(id_h,len(hk_list)))
+                print("Loop over the radius %d out of %d."%(id_h,len(hk_list)))
             
             #estimate the N_i_intersect_j matrix, numerator of eq. 2.1
             N_i_intersect_j = self._estimate_N_i_and_j(wij_mat.copy())
@@ -407,9 +424,15 @@ class Prop_sep_class():
             
             #evaluating the test-statistics matrix Tij
             T_ij = N_i_uni_j*KL_ij*H_ij
-
+            
             #update the wij matrix
+            #pdb.set_trace()
             wij_mat = np.logical_and((D<=hk_l),(T_ij<=self.lambda_)).astype(float)
+            
+            if id_h>5:
+                labels_,cluster_distances_,cluster_error_ = self._summarize_results(wij_mat)
+                N_cluster_AWC = list(labels_.keys())
+                print(N_cluster_AWC)
         
         #end of the loop
         if self.verbose>=0:
