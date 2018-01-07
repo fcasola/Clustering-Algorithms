@@ -18,11 +18,11 @@ Relevant literature:
 # Author: Francesco Casola <fr.casola@gmail.com>
 
 # imports
-import warnings
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 #personal imports
 import Partitional_Algo as pa
+import Prop_sep_Algo as ps
 
 ###############################################################################
 # Main class grouping all implementations
@@ -52,7 +52,7 @@ class Cluster_class():
     General Parameters: common to all algorithms
     ----------
     
-    algorithm: "KM", "KKM", "GKKM", default="GKKM-CMM"
+    algorithm: "KM", "KKM", "GKKM", "AWC", default="GKKM-CMM"
         Specifies the algorithm name. Use one  according to the notation above.
         If not specified, GKKM-CMM will run.
     
@@ -67,6 +67,7 @@ class Cluster_class():
         code is used at all, which is useful for debugging. For n_jobs below -1,
         (n_cpus + 1 + n_jobs) are used. Thus for n_jobs = -2, all CPUs but one
         are used.
+    
     
     Parameters for the Partitional algorithms
     ----------
@@ -89,7 +90,7 @@ class Cluster_class():
         Relative tolerance with respect to the initial clustering error after 
         which the KKM routine declares convergence.
         
-
+        
     Additional Parameters for the Partitional algorithms
     ----------
 
@@ -106,27 +107,58 @@ class Cluster_class():
         Used by the CMM algorithm.
         
     beta_scale: float, optional, default=1
-        Constant scaling the parameter beta in the CMM Likelihood
+        Constant scaling the parameter beta in the CMM Likelihood.
     
     random_seed: int, optional, default=None
         Seed for the random initialization of the KM and KMM routines, when 
         running in a non-deterministic way.
+        
+        
+    2nd family: Propagation-separation algorithms
+    ----------
     
+    Identifying clustering structure by checking at different points and for
+    different scales on departure from local homogeneity.
+    Implmented algorithms within this family:
+        
+        - Adaptive Weights Clustering (AWC): 
+            A type of adaptive nonparametric clustering.
+    
+    
+    Parameters for the Propagation-separation algorithms
+    ----------
+        
+    lambda_: float, optional, default=None
+        Value for the tuning parameter lambda, defining the "no gap" threshold
+        in the AWC algorithm. It is a float. If not specified, automatic 
+        calibration will take place.
+        
+    a_np: float, optional, default=sqrt(2)
+        Value "a" in the paper by Efimov et al., defining the geometric series 
+        in the number of neighbors for the construction of the set of radii.
+    
+    b_hk: float, optional, default=1.95
+        Value "b" in the paper by Efimov et al., defining the geometric series 
+        in the radii growth for the construction of the set of radii.
+        
     """
     
     def __init__(self,algorithm="GKKM-CMM",verbose=0,n_jobs=1,kernel="gauss",
                  sigm_gauss=1,n_clusters=None,max_iter=100,tol=1e-5,n_init=100,
-                 n_iter_CMM=500,r_exemplars=2,beta_scale=1,random_seed=None):
+                 n_iter_CMM=500,r_exemplars=2,beta_scale=1,random_seed=None,
+                 lambda_=None,a_np=np.sqrt(2),b_hk=1.95):
         
         # dictionary of all implemented algorithms
         Impl_algo = dict(partitional=["KM", "KKM", "GKKM", "GKKM-CMM"],
                          prop_sep=["AWC"])
         
         # assignment to the class properties
+        #general
         self.impl_algo = Impl_algo
         self.algorithm = algorithm
         self.verbose = verbose
         self.n_jobs = n_jobs
+        #partitional
         self.kernel = kernel
         self.sigm_gauss = sigm_gauss
         self.n_clusters = n_clusters
@@ -137,6 +169,10 @@ class Cluster_class():
         self.r_exemplars = r_exemplars
         self.beta_scale = beta_scale        
         self.random_seed = random_seed
+        #propagation-separation
+        self.lambda_ = lambda_
+        self.a_np = a_np
+        self.b_hk = b_hk
         
     
     def _compute_kernel(self,X,weights):
@@ -153,6 +189,7 @@ class Cluster_class():
             K = np.exp(-pairwise_sq_dists /(2*self.sigm_gauss**2))        
         else:
              raise ValueError("Invalid Kernel name.")               
+             
         #weights
         if weights is None:
             weights = np.ones((1,X.shape[0]))
@@ -163,8 +200,25 @@ class Cluster_class():
             except ValueError:    
                 print("Invalid array size for the weights.")
                 raise             
+                
         # return the result 
         return (K,weights)
+    
+    def _compute_dist_mat(self,X):
+        """Computes the Distance matrix and the number of features of the dataset.
+        For the Propagation-separation algorithm"""
+            
+        #distance matrix
+        if self.algorithm == self.impl_algo['prop_sep'][0]:
+            # gaussian kernel will be calculated
+            pairwise_dists = squareform(pdist(X, 'sqeuclidean'))
+            pairwise_dists = np.sqrt(pairwise_dists)
+        else:
+            #left for possible future additions
+            pass
+        
+        # return the result 
+        return (pairwise_dists,X.shape[1])
     
     def _estimate_clusters(self,X):
         """Checking and/or inferring from data the number of clusters to be
@@ -257,6 +311,38 @@ class Cluster_class():
             
         return (labels_,cluster_distances_,cluster_error_)
         
+    def _scheduler_prop_sep(self,D,n_features):    
+        """General scheduler for the propagation-separation algorithms
+        Runs the approprate subroutine based on the algorithm name.
+        """  
+        
+        #Initialize the object
+        prop_sep = ps.Prop_sep_class(self)
+    
+        #Check that parameters have proper values
+        if self.lambda_ is None:
+            check_lambda_ = 0
+        else:
+            check_lambda_ = self.lambda_
+            
+        Pars_to_check = dict(verbose = [self.verbose,int],a_np = [self.a_np,float], 
+                             b_hk = [self.b_hk,float],lambda_=[check_lambda_,float])
+        #checking parameters
+        self._check_pars(Pars_to_check)
+    
+        #Running the scheduler
+        if self.algorithm == self.impl_algo['prop_sep'][0]:
+            if self.verbose>0:
+                print("Running the Adaptive Weights Clustering (AWC) algorithm.")
+            #Run the Adaptive Weights Clustering (AWC) algorithm
+            labels_,cluster_distances_,cluster_error_ = \
+            prop_sep.run_AWC(D,n_features)
+        else:
+            #left for possibly adding other routines in the future
+            pass
+
+        return (labels_,cluster_distances_,cluster_error_)
+            
     def fit(self,X,weights=None):
         """Compute partitional or propagation-separation clustering.
 
@@ -264,7 +350,7 @@ class Cluster_class():
         ----------
         X : array-like or sparse matrix, shape=(n_samples, n_features)
         
-        weights : array, [1, n_samples], default=numpy.ones((1,n_samples))
+        weights : array, [1, n_samples], optional, default=numpy.ones((1,n_samples))
         Weights for the individual points of the dataset. Each partitional 
         algorithm is implemented using the weighted case. The non-weighted 
         scenario can be obtained by having an array of ones.
@@ -301,7 +387,12 @@ class Cluster_class():
                 self._scheduler_partitional(K,weights)
             
         elif self.algorithm in self.impl_algo['prop_sep']:
-            pass
+            #Compute the distance matrix and number of features
+            D, n_features = self._compute_dist_mat(X)             
+            #Start scheduler for the partitional algorithms
+            self.labels_,self.cluster_distances_,self.cluster_error_ = \
+                self._scheduler_prop_sep(D,n_features)
+            
         else:
             # raise error, not a valid algorithm name
             raise ValueError("Invalid algorithm name.")

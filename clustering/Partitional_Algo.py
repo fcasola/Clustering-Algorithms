@@ -19,12 +19,10 @@ Relevant literature:
 # Author: Francesco Casola <fr.casola@gmail.com>
 
 # imports
-import warnings
 import numpy as np
 from joblib import Parallel, delayed
 import math as mt
 import progressbar 
-import pdb
 
 ###############################################################################
 # Main class defining Partitional implementations
@@ -52,10 +50,12 @@ class Partitional_class():
 
     def __init__(self,Init_pars):
         # assignment of the class properties from the class Cluster_class()
+        #general
         self.impl_algo = Init_pars.impl_algo
         self.algorithm = Init_pars.algorithm
         self.verbose = Init_pars.verbose
         self.n_jobs = Init_pars.n_jobs
+        #partitional
         self.kernel = Init_pars.kernel
         self.sigm_gauss = Init_pars.sigm_gauss
         self.n_clusters = Init_pars.n_clusters
