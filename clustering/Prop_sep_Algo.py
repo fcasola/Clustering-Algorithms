@@ -333,6 +333,9 @@ class Prop_sep_class():
         hk_list = self._initialize_radii_set(D,n_features,h0)
         
         #loop over the selected radii
+        if self.verbose>=0:
+            print("Starting the loop over the sequence of radii.")
+            
         for hk_l in hk_list:
             
             #estimate the N_i_intersect_j matrix, numerator of eq. 2.1
@@ -359,5 +362,6 @@ class Prop_sep_class():
             #evaluating the test-statistics matrix Tij
             T_ij = N_i_uni_j*KL_ij*H_ij
 
-                    
+            #update the wij matrix
+            wij_mat = np.logical_and((D<=hk_l),(T_ij<=self.lambda_)).astype(float)
         
