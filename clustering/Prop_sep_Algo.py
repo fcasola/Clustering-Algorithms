@@ -290,6 +290,48 @@ class Prop_sep_class():
         #return
         return y    
          
+    def _summarize_results(self,wij_final):
+        """Routine that gets the final connectivity matrix and returns the 
+        cluster labels.        
+        """
+        
+        #number of samples
+        n_samples = wij_final.shape[0]
+        
+        #defining final label array
+        labels_ = np.zeros((1,n_samples))
+        
+        #list of indeces
+        list_id = np.arange(n_samples)
+        
+        #initialize a cluster index
+        cluster_id = 1
+        
+        #loop until you looked at all points
+        while list_id.shape[0] != 0:
+        
+            #taking the current point xi
+            current_point = list_id[0]
+            
+            #grouping all wij>0 points in the same group
+            xj_same_cluster = np.where(wij_final[current_point,:]==1)[0]
+            
+            #append the xi point
+            xj_same_cluster = np.append(xj_same_cluster,current_point)
+            
+            #assignment
+            labels_[xj_same_cluster] = cluster_id
+            
+            #remove such points from the list_id array
+            list_id = np.delete(list_id,xj_same_cluster)
+            
+            #advance cluster id
+            cluster_id += 1
+            
+        #return the list of labels. Distances from cluster centers and
+        #cluster errors not defined in this algorithm
+        return (labels_,None,None)
+            
             
     def run_AWC(self,D,n_features):
         """Routine running the Adaptive Weights Clustering (AWC) algorithm
@@ -336,7 +378,11 @@ class Prop_sep_class():
         if self.verbose>=0:
             print("Starting the loop over the sequence of radii.")
             
-        for hk_l in hk_list:
+        for id_h,hk_l in enumerate(hk_list):
+
+            #notify
+            if self.verbose>=1:
+                print("Loop over the radius %d out of %d."(id_h,len(hk_list)))
             
             #estimate the N_i_intersect_j matrix, numerator of eq. 2.1
             N_i_intersect_j = self._estimate_N_i_and_j(wij_mat.copy())
@@ -364,4 +410,15 @@ class Prop_sep_class():
 
             #update the wij matrix
             wij_mat = np.logical_and((D<=hk_l),(T_ij<=self.lambda_)).astype(float)
+        
+        #end of the loop
+        if self.verbose>=0:
+            print("End of the loop. Collecting cluster data.")
+        
+        #Summary of the results
+        labels_,cluster_distances_,cluster_error_ = self._summarize_results(wij_mat)
+        
+        #return
+        return (labels_,cluster_distances_,cluster_error_)
+
         
