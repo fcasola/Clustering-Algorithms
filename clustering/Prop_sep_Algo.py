@@ -16,9 +16,11 @@ Relevant literature:
 # Author: Francesco Casola <fr.casola@gmail.com>
 
 # imports
+import warnings
 import numpy as np
 from joblib import Parallel, delayed
 import math as mt
+from scipy.special import betainc, beta
 import progressbar 
 
 ###############################################################################
@@ -118,10 +120,10 @@ class Prop_sep_class():
         ----------
         
         D: matrix, shape=(n_samples, n_samples)
-        Matrix of the pairwise distances for the dataset   
+        Matrix of the pairwise distances for the dataset. 
 
         n_features: int
-        Number of features (i.e. dimensionality) of the dataset  
+        Number of features (i.e. dimensionality) of the dataset.  
 
         h0: float
         The smallest radius among all h0(xi). 
@@ -130,6 +132,8 @@ class Prop_sep_class():
         Returns
         ----------
         
+        h_list: list of floats
+        List containing the sequence of radii to be used in the AWC algorithm.
         
         """
         
@@ -138,6 +142,10 @@ class Prop_sep_class():
         
         #initializing the final list of radii
         h_list = [h0]
+
+        #verbosity
+        if self.verbose>=1:
+            print("Initial radius is %f."%h0)
 
         #list of all possible pairwise distances
         D_flat_uniq = np.unique(D)
@@ -177,12 +185,111 @@ class Prop_sep_class():
             #defining the new candidate hk. b*h_{k-1} is a hard limit
             hk_candidate = np.min(D_flat_uniq[id_hk_candidate],self.b_hk*h_list[-1])
         
-            #adding the new candadate hk to the list
+            #produce a warning
+            if hk_candidate<=h_list[-1]:
+                warnings.warn("\nRadii sequence not increasing!")
+            
+            #verbosity
+            if self.verbose>=1:
+                print("New radius found is %f. Max is %f."%(hk_candidate,h_max))
+                
+            #adding the new candidate hk to the list
             h_list.append(hk_candidate)
             
         #return
         return h_list
+    
+    
+    def _estimate_N_i_and_j(self,wij_km1):
+        """Routine to estimate the N_i_intersect_j matrix, 
+        numerator of eq. 2.1 of the Efimov paper"""
+        
+        #put zeros on the diagonal to avoid the l=i,j terms
+        np.full_diagonal(wij_km1,0)
+        
+        #take all pairwise scalar products, as in section 2.1
+        N_i_intersect_j = np.dot(wij_km1,wij_km1.T)
+        
+        #return
+        return N_i_intersect_j
+    
+    def _estimate_N_i_comp_j(self,D,hk_l,wij_km1):
+        """Routine to estimate the N_i_complem_j matrix, 
+        denominator of eq. 2.1 of the Efimov paper."""
+        
+        #matrix Glj, with 1s where xl does not belong to a sphere as big as hk_l
+        #from xj
+        Glj = (D>=hk_l).astype(float)
+        
+        #fill the Glj diagonal with zeros to avoid l=i,j counting
+        np.fill_diagonal(Glj,0)
+        
+        #Defining now the first component of the matrix N_i_complem_j.
+        # It's the first term in the defining sum. We call it Pij
+        Pij = np.dot(wij_km1,Glj)
+        
+        #Defining the mass of the complement matrix
+        N_i_complem_j = Pij + Pij.T
+        
+        #return
+        return N_i_complem_j    
             
+
+    def _compute_qij(self,D,hk_l,n_features):   
+        """Routine to compute the q_ij values.
+        Eq. 2.5 of the Efimov paper.
+                
+        Warning: definition in eq. 2.5 of the paper is incorrect!
+        One is supposed to use the regularized incomplete beta-function and 
+        not the simple incomplete beta. The regularized incomplete is equivalent
+        to the incomplete times the beta function. The expression for q(t) has
+        been changed accordingly.
+        """
+
+        #defining the t_ij terms
+        t_ij = np.divide(D,hk_l)
+        
+        #the incomplete beta-function
+        Beta_inc_eval =  betainc((n_features+1)/2,0.5,1 - np.power(t_ij,2)/4)
+    
+        #evaluate q_ij (different from the paper due to the regularized express.)
+        q_ij = 2*np.divide(1,Beta_inc_eval) - 1
+        
+        #take the inverse
+        q_ij = 1/q_ij
+        
+        #replace nans
+        q_ij[np.isnan(q_ij)] = 0
+        
+        #return
+        return q_ij
+    
+    def _evaluate_KL(self,theta_ij,q_ij):
+        """Function evaluating the Kullback-Leibler (KL) divergence
+        """
+        
+        #defining the argument of the log
+        argument_log = np.divide(theta_ij*(1-q_ij),(1-theta_ij)*q_ij)
+        
+        #evaluating the divergence
+        KL_ij = (theta_ij-q_ij)*np.log(argument_log)
+        
+        #return
+        return KL_ij
+    
+    
+    def _heaviside(self,x,val=0.5):
+        """Custom definition of the Heaviside function.
+        Allows >= vs > and element-wise implementation.
+        """
+        
+        y = np.ones_like(x, dtype=np.float32)
+        y[x < 0.0] = 0.0
+        y[x == 0.0] = val
+        
+        #return
+        return y    
+         
             
     def run_AWC(self,D,n_features):
         """Routine running the Adaptive Weights Clustering (AWC) algorithm
@@ -225,10 +332,32 @@ class Prop_sep_class():
             print("Initializing the sequence of radii.")
         hk_list = self._initialize_radii_set(D,n_features,h0)
         
+        #loop over the selected radii
+        for hk_l in hk_list:
+            
+            #estimate the N_i_intersect_j matrix, numerator of eq. 2.1
+            N_i_intersect_j = self._estimate_N_i_and_j(wij_mat.copy())
         
+            #estimate the N_i_complement_j matrix, denominator of eq. 2.1
+            N_i_complem_j = self._estimate_N_i_comp_j(D,hk_l,wij_mat)
         
+            #define the mass of the union N_i_uni_j:
+            N_i_uni_j = N_i_intersect_j + N_i_complem_j
+            
+            #define the theta_ij matrix in eq. 2.1
+            theta_ij = np.divide(N_i_intersect_j,N_i_uni_j)
         
+            #compute the qij matrix, defined in eq. 2.3
+            q_ij = self._compute_qij(D,hk_l,n_features)    
         
+            #evaluating the Kullback-Leibler (KL) divergence
+            KL_ij = self._evaluate_KL(theta_ij,q_ij)
         
-        
+            #evaluating Heaviside functions
+            H_ij = (self._heaviside(q_ij-theta_ij,1) - self._heaviside(theta_ij-q_ij,0))
+            
+            #evaluating the test-statistics matrix Tij
+            T_ij = N_i_uni_j*KL_ij*H_ij
+
+                    
         
