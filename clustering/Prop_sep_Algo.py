@@ -20,11 +20,8 @@ import warnings
 import numpy as np
 from joblib import Parallel, delayed
 from scipy.special import betainc
-import sys
 import pdb
 
-#constants
-EPS = sys.float_info.epsilon
 
 ###############################################################################
 # Main class defining Propagation-separation implementations
@@ -107,10 +104,9 @@ class Prop_sep_class():
             Mij = np.maximum(h0_xi,h0_xj)
             
             #initializing the connectivity matrix via an element-wise comparison
-            #w0ij = (D<=Mij).astype(float)
-            w0ij = (D<=np.min(h0xi)).astype(float)
+            w0ij = (D<=Mij).astype(float)            
             
-            #finding the initial radius used in the analysis
+            #get samllest radius
             h0 = np.min(h0xi)
             
         #returning
@@ -146,13 +142,13 @@ class Prop_sep_class():
 
         #verbosity
         if self.verbose>=1:
-            print("Initial radius is %f."%h0)
+            print("Initial radius is %f."%np.min(h0))
                 
         #maximum possible radius
         h_max = np.max(D)
                 
         #while we haven't reached the maximum possible radius
-        while h_list[-1] < h_max:
+        while np.min(h_list[-1]) < h_max:
         
             #getting the number of points within the sphere of the 
             #previous radius: n(xi,h_km1). A number for each xi
@@ -160,7 +156,7 @@ class Prop_sep_class():
             
             #estimate the number of points that should be (at most) within
             # the sphere defined by the next radius
-            n_xi_hk = np.floor(n_xi_hkm1*self.a_np)
+            n_xi_hk = np.maximum(np.floor(n_xi_hkm1*self.a_np),n_xi_hkm1+1)
             
             #find the points xi for which the ratio n_xi_hk/n_xi_hkm1 is 
             #maximized. It's the expression B.2 of the paper by Efimov et al.
@@ -184,10 +180,11 @@ class Prop_sep_class():
                 id_hk_candidate = len(matrix_pts)-1    
             
             #defining the new candidate hk. b*h_{k-1} is a hard limit
-            hk_candidate = min(D_flat_uniq[id_hk_candidate],self.b_hk*h_list[-1])
+            previous_hk = np.min(h_list[-1])
+            hk_candidate = min(D_flat_uniq[id_hk_candidate],self.b_hk*previous_hk)
         
             #produce a warning
-            if hk_candidate<=h_list[-1]:
+            if hk_candidate<=previous_hk:
                 warnings.warn("\nRadii sequence not increasing!")
             
             #verbosity
@@ -198,7 +195,7 @@ class Prop_sep_class():
             h_list.append(hk_candidate)
             
         #save biggest radius in case it's not there
-        if h_list[-1] < h_max:
+        if np.min(h_list[-1]) < h_max:
             h_list.append(h_max)
             #verbosity
             if self.verbose>=1:
@@ -208,12 +205,15 @@ class Prop_sep_class():
         return h_list
     
     
-    def _estimate_N_i_and_j(self,wij_km1):
+    def _estimate_N_i_and_j(self,D,hk_l,wij_km1):
         """Routine to estimate the N_i_intersect_j matrix, 
         numerator of eq. 2.1 of the Efimov paper"""
         
         #put zeros on the diagonal to avoid the l=i,j terms
         np.fill_diagonal(wij_km1,0)
+        
+        #must be within the sphere
+        wij_km1 = wij_km1*(D<=hk_l)
         
         #take all pairwise scalar products, as in section 2.1
         N_i_intersect_j = np.dot(wij_km1,wij_km1.T)
@@ -227,7 +227,7 @@ class Prop_sep_class():
         
         #matrix Glj, with 1s where xl does not belong to a sphere as big as hk_l
         #from xj
-        Glj = (D>=hk_l).astype(float)
+        Glj = (D>hk_l).astype(float)
         
         #fill the Glj diagonal with zeros to avoid l=i,j counting
         np.fill_diagonal(Glj,0)
@@ -276,15 +276,16 @@ class Prop_sep_class():
         """Function evaluating the Kullback-Leibler (KL) divergence
         """
         
-        #correct for pathological cases
-        q_ij = np.maximum(np.minimum(q_ij, 1- EPS),EPS)
-        theta_ij = np.maximum(np.minimum(theta_ij, 1- EPS),EPS)
-        
         #evaluating the divergence
         KL_ij = theta_ij*np.log(theta_ij/q_ij) + (1 - theta_ij)*np.log((1-theta_ij)/(1-q_ij))
         
         #removing possible nans
         KL_ij[np.isnan(KL_ij)] = 0
+        
+        #if q_ij or theta_ij is zero, points are not connected and 
+        #test should not be passed
+        KL_ij[q_ij==0] = np.inf
+        KL_ij[theta_ij==0] = np.inf
         
         #return
         return KL_ij
@@ -384,25 +385,27 @@ class Prop_sep_class():
         if self.verbose>=0:
             print("Initializing the connectivity matrix.")
         wij_mat,h0 = self._initialize_weights(D,n_features)
-        
+    
         #Initializing the sequence of radii hk used in AWC
         if self.verbose>=0:
             print("Initializing the sequence of radii.")
         hk_list = self._initialize_radii_set(D,n_features,h0)
         
+        #hk_list=[]
+        #hk_list=[0.61032778078668493, 1.0124228365658279, 1.0547511554864499, 1.1280514172678491, 1.1768602295939818, 1.2419742348374214, 1.2903487900563932, 1.3583077707206122, 1.4150971698084915, 1.4916433890176286, 1.5572411502397434, 1.6278820596099706, 1.7066048165875998, 1.7613914953808532, 1.9006577808748204, 1.960867155112759, 2.0862646045025057, 2.2549944567559366, 2.4052026941611389, 2.7018512172212548, 3.0364452901377956, 3.4820970692960302, 3.871046370169184, 4.7206991007688686, 5.500909015790028, 6.3674955830373383, 7.2953752473741895, 8.3043663213998453, 9.4764180996830234, 10.581233387464808, 11.987702031665622, 13.951702405083044, 17.0018381359193, 20.271408436514712, 23.816223462169653, 29.194391584686265, 38.815460837145814]
         #loop over the selected radii
         if self.verbose>=0:
             print("Starting the loop over the sequence of radii.")
             
             
-        for id_h,hk_l in enumerate(hk_list):
+        for id_h,hk_l in enumerate(hk_list[:len(hk_list)-1]):
 
             #notify
             if self.verbose>=1:
-                print("Loop over the radius %d out of %d."%(id_h,len(hk_list)))
+                print("Loop over the radius %d out of %d."%(id_h,len(hk_list)-1))
             
             #estimate the N_i_intersect_j matrix, numerator of eq. 2.1
-            N_i_intersect_j = self._estimate_N_i_and_j(wij_mat.copy())
+            N_i_intersect_j = self._estimate_N_i_and_j(D,hk_l,wij_mat.copy())
         
             #estimate the N_i_complement_j matrix, denominator of eq. 2.1
             N_i_complem_j = self._estimate_N_i_comp_j(D,hk_l,wij_mat)
@@ -410,29 +413,49 @@ class Prop_sep_class():
             #define the mass of the union N_i_uni_j:
             N_i_uni_j = N_i_intersect_j + N_i_complem_j
             
+            print(10*'-')
+            print(N_i_intersect_j[-3:,0],N_i_uni_j[-3:,0])
+            
+            
             #define the theta_ij matrix in eq. 2.1
-            theta_ij = np.divide(N_i_intersect_j,N_i_uni_j)
+            with np.errstate(invalid='ignore'):
+                theta_ij = np.divide(N_i_intersect_j,N_i_uni_j)
+                theta_ij[N_i_uni_j==0] = 0
+                theta_ij = theta_ij.clip(min=0.05, max=0.9)
         
             #compute the qij matrix, defined in eq. 2.3
             q_ij = self._compute_qij(D,hk_l,n_features)    
+            q_ij = q_ij.clip(min=0.05, max=0.9)
         
             #evaluating the Kullback-Leibler (KL) divergence
             KL_ij = self._evaluate_KL(theta_ij,q_ij)
+            KL_ij[theta_ij<=0.05] = np.nan
         
             #evaluating Heaviside functions
             H_ij = (self._heaviside(q_ij-theta_ij,1) - self._heaviside(theta_ij-q_ij,0))
             
             #evaluating the test-statistics matrix Tij
             T_ij = N_i_uni_j*KL_ij*H_ij
+            #remove points too far
+            T_ij[D>hk_l] = np.inf
             
             #update the wij matrix
-            #pdb.set_trace()
-            wij_mat = np.logical_and((D<=hk_l),(T_ij<=self.lambda_)).astype(float)
+            #wij_mat = np.logical_and((D<=hk_list[id_h+1]),(T_ij<=self.lambda_)).astype(float)
+            logic_change = ((D<=hk_list[id_h+1])*(D>0)*(T_ij<=self.lambda_)*(np.isnan(T_ij) == False))
+            wij_mat[logic_change] = 1
+            np.fill_diagonal(wij_mat, 1)
+            
+            print(10*'-')
+            #print(hk_l,T_ij[-3:,0],KL_ij[-3:,0],theta_ij[-3:,0],q_ij[-3:,0],sep='\n')
+            print(hk_l,N_i_intersect_j[-3:,0],N_i_uni_j[-3:,0],wij_mat[-3:,0],wij_mat[-3,0],sep='\n')            
             
             if id_h>5:
+                #pdb.set_trace()
                 labels_,cluster_distances_,cluster_error_ = self._summarize_results(wij_mat)
                 N_cluster_AWC = list(labels_.keys())
                 print(N_cluster_AWC)
+                if N_cluster_AWC[0]==15:
+                    break
         
         #end of the loop
         if self.verbose>=0:
