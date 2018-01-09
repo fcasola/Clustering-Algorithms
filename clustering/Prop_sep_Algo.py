@@ -21,6 +21,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from scipy.special import betainc
 import progressbar 
+import pdb
 
 np.warnings.filterwarnings('ignore')
 ###############################################################################
@@ -176,12 +177,12 @@ class Prop_sep_class():
             #is weakened and we take the hk having at least n_xi_hk[xi_max_n] elements   
             if matrix_pts[-1]>=n_xi_hk[xi_max_n]:
                 id_hk_candidate = np.where(matrix_pts >= n_xi_hk[xi_max_n])[0][0]
+                #defining the new candidate hk. b*h_{k-1} is a hard limit
+                previous_hk = np.min(h_list[-1])
+                hk_candidate = min(D_flat_uniq[id_hk_candidate],self.b_hk*previous_hk)
             else:
-                id_hk_candidate = len(matrix_pts)-1    
-            
-            #defining the new candidate hk. b*h_{k-1} is a hard limit
-            previous_hk = np.min(h_list[-1])
-            hk_candidate = min(D_flat_uniq[id_hk_candidate],self.b_hk*previous_hk)
+                #we have reached maximum number of points
+                hk_candidate = h_max
         
             #produce a warning
             if hk_candidate<=previous_hk:
