@@ -377,17 +377,24 @@ class Prop_sep_class():
         #Initializing the sequence of radii hk used in AWC
         if self.verbose>=0:
             print("Initializing the sequence of radii.")
-        #hk_list = self._initialize_radii_set(D,n_features,h0)
         hk_list = self._initialize_radii_set(D,n_features,h0)
         
         #loop over the selected radii
         if self.verbose>=0:
             print("Starting the loop over the sequence of radii.")
             
+        #A couple of constants used later
+        #lower and upper clipping distance from 0 and 1 for theta and q
+        clip_dst_lw = 0.05
+        clip_dst_up = 0.1
+        #upper distance from 1, for calling a big theta 
+        #(distance from 1 for theta to be considered as an effective 1)
+        upper_dst = clip_dst_lw
+            
         #starting a progress bar            
         progress = progressbar.ProgressBar()            
         
-        #for id_h,hk_l in enumerate(hk_list[:len(hk_list)-1]):
+        #loop over increasing radii
         for id_h in progress(range(1, len(hk_list))):
 
             #notify
@@ -409,21 +416,21 @@ class Prop_sep_class():
             #compute the qij matrix, defined in eq. 2.3
             q_ij = self._compute_qij(D,hk_list[id_h-1],n_features)    
             #removing complicated situations
-            q_ij = q_ij.clip(min=0.05, max=0.9)   
+            q_ij = q_ij.clip(min=clip_dst_lw, max=(1-clip_dst_up))   
             
             #the theta_ij
             theta_ij = np.divide(N_i_intersect_j,N_i_uni_j)
             #handling a bunch of pathological cases
             #handling situations with too many or too few points
             #almost all points at the intersection of two spheres, around xi and xj
-            big_theta_ij = theta_ij >= 0.95
+            big_theta_ij = theta_ij >= 1-upper_dst
             #if not points in the union, theta_ij is zero
             theta_ij[N_i_uni_j == 0] = 0
             #upper and lower clip. Both theta and q must be within [0,1]
-            theta_ij = theta_ij.clip(min=0.05, max=0.9)
-            q_ij = q_ij.clip(min=0.05, max=0.9)
+            theta_ij = theta_ij.clip(min=clip_dst_lw, max=(1-clip_dst_up))
+            q_ij = q_ij.clip(min=clip_dst_lw, max=(1-clip_dst_up))
             #almost no points at the intersection 
-            small_theta_ij = theta_ij <= 0.05
+            small_theta_ij = theta_ij <= clip_dst_lw
             
             #evaluate the KL divergence and compute the test statistics
             KL_ij = self._evaluate_KL(theta_ij,q_ij)
@@ -453,12 +460,14 @@ class Prop_sep_class():
             np.fill_diagonal(Pij, False)
             N_xixjexcl = (np.tile(N_ij_xiexcl,(D.shape[0],1)) - Pij).T            
             #don't change if points within intersection are too few
-            dont_disc2 = (N_xixjexcl == N_i_intersect_j_loose) * (N_i_intersect_j < 0.5 * N_i_intersect_j_loose)        
+            dont_disc2 = (N_xixjexcl == N_i_intersect_j_loose) * (N_i_intersect_j < 0.5*N_i_intersect_j_loose)        
             T_ij[np.logical_or(dont_disc2, dont_disc2.T)] = np.nan                        
                 
             #applying eq. 2.6 of the paper
-            I = (D <= hk_list[id_h]) * (D > 0) * (T_ij != np.inf) * (np.isnan(T_ij) == False) 
-            wij_mat[I] = 1 * (T_ij[I] <= self.lambda_)
+            pos_change_dist = np.logical_and((D <= hk_list[id_h]),(D > 0))
+            pos_change_stat = np.logical_and((T_ij != np.inf),(np.isnan(T_ij) == False))
+            pos_change_tot = np.logical_and(pos_change_dist,pos_change_stat)
+            wij_mat[pos_change_tot] = 1 * (T_ij[pos_change_tot] <= self.lambda_)
             
             wij_mat[np.isnan(T_ij)] = 0
             #always put ones on the diagonal (a point is connected to himself)

@@ -17,5 +17,7 @@ Package implementing the following clustering algorithms
 """
 
 from .Cluster_Algo import Cluster_class
+from .Partitional_Algo import Partitional_class
+from .Prop_sep_Algo import Prop_sep_class
 
-__all__ = ['Cluster_class']
+__all__ = ["Cluster_class","Partitional_class","Prop_sep_class"]

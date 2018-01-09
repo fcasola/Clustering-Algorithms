@@ -21,8 +21,8 @@ Relevant literature:
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 #personal imports
-import Partitional_Algo as pa
-import Prop_sep_Algo as ps
+from . import Partitional_Algo as pa
+from . import Prop_sep_Algo as ps
 
 ###############################################################################
 # Main class grouping all implementations
