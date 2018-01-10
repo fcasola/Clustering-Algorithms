@@ -20,8 +20,8 @@ Relevant literature:
 
 # imports
 import numpy as np
-from joblib import Parallel, delayed
-import math as mt
+#from joblib import Parallel, delayed
+#parallel computation not implemented yet!
 import progressbar 
 
 ###############################################################################

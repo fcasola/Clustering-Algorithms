@@ -18,7 +18,8 @@ Relevant literature:
 # imports
 import warnings
 import numpy as np
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
+#parallel computation not implemented yet!
 from scipy.special import betainc
 import progressbar 
 

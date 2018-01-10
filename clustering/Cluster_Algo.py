@@ -59,7 +59,7 @@ class Cluster_class():
     verbose: int, default=0
         Verbosity mode. There are 3 levels of verbosity: 0,1,2.
         
-    n_jobs: int
+    n_jobs: int (NOT IMPLEMENTED YET)
         Making use of parallel computation where possible.
         
         We make use of the "Parallel" method within the Python "joblib" package.
@@ -81,7 +81,9 @@ class Cluster_class():
         
     n_clusters: int, optional
         Number of clusters that have to be identified in the dataset.
-        If not provided explicitly, a routine will automatically infer it from data.
+        If not provided explicitly, a routine will automatically run the 
+        algorithm from 1 up to 10 clusters, in order to be later on able to 
+        produce an Elbow-type plot.
     
     max_iter: int, optional, default=100
         Maximum number of iterations of the fundamental KKM routine.
