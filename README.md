@@ -118,7 +118,8 @@ Definitions:
         
     n_clusters: int, optional
         Number of clusters that have to be identified in the dataset.
-        If not provided explicitly, a routine will automatically infer it from data.
+        If not provided explicitly, a routine will automatically run the algorithm from 1 up to 10 clusters,
+        in order to be later on able to produce an Elbow-type plot.
     
     max_iter: int, optional, default=100
         Maximum number of iterations of the fundamental KKM routine.
