@@ -1,4 +1,4 @@
-"""Partitional Clustering-Algorithms
+"""Propagation-separation Clustering-Algorithms
 
 Module implementing an algorithm of the propagation-separation approach family.
 Specifically:
