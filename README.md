@@ -35,11 +35,6 @@ The clustering algorithms have been tested over two families of datasets contain
 - [Progressbar](https://pypi.python.org/pypi/progressbar2/3.18.1)
 
 ### Install and basic use
-First, do:
-
-```
-git clone https://github.com/fcasola/Clustering-Algorithms
-```
 
 After appending to the path the *Clustering-Algorithms* folder (see also [here](analysis/Demo_analysis_shape_set.ipynb)), the package can be imported by typing, e.g.:
 
